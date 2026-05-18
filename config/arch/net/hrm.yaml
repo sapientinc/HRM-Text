@@ -1,0 +1,12 @@
+name: baselines.hrm_nocarry_bp_warmup@HierarchicalReasoningModel
+head: lm_head@LMHead
+
+half_layers: True  # Divide layers by 2, split layers evenly to H and L.
+
+# HRM config
+H_cycles: 2
+L_cycles: 3
+H_override: {}
+
+bp_warmup_ratio: 0.2
+bp_max_steps: 5

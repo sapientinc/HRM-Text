@@ -1,0 +1,47 @@
+engine: SimpleEngine
+ckpt_path: null
+
+generation_config:
+  batch_size: 33
+  max_context: 3072
+  temperature: 0.0
+  condition: "synth,cot"
+
+benchmarks:
+  # CoT
+  - name: GSM8k
+  - name: MATH
+
+  # Few-shot freeform
+  - name: DROP
+    generation_config:
+      condition: "direct"
+
+  # Few-shot MCQ
+  - name: MMLU
+    generation_config:
+      condition: "direct"
+      max_context: 4096
+      batch_size: 1
+    special_shots:
+      high_school_european_history: 3  # MMLU: some tasks have too long context to fit inside model.
+  - name: ARC
+    generation_config:
+      condition: "direct"
+      max_context: 4096
+      batch_size: 1
+  - name: HellaSwag
+    generation_config:
+      condition: "direct"
+      max_context: 4096
+      batch_size: 1
+  - name: Winogrande
+    generation_config:
+      condition: "direct"
+      max_context: 4096
+      batch_size: 1
+  - name: BoolQ
+    generation_config:
+      condition: "direct"
+      max_context: 4096
+      batch_size: 1

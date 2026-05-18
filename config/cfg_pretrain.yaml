@@ -1,0 +1,22 @@
+defaults:
+  - arch/net@arch: hrm
+  - arch/size@arch: XL
+  - data: hlm
+  - _self_
+
+hydra:
+  output_subdir: null
+
+global_batch_size: 196608  # Batch size (tokens)
+epochs: 4
+checkpoint_interval: 1
+
+lr: 2.2e-4
+lr_min_ratio: 1.0
+lr_warmup_steps: 2000
+
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+
+ema: 0.9999

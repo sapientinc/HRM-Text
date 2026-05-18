@@ -1,0 +1,12 @@
+engine: SimpleEngine
+ckpt_path: null
+
+generation_config:
+  batch_size: 25
+  max_context: 4096
+  temperature: 0.6
+  condition: "synth,cot"
+
+benchmarks:
+  - name: AIMEMajorityVoting
+    year: "25"

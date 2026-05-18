@@ -1,0 +1,10 @@
+name: baselines.trm_nocarry@TinyRecursiveModel
+head: lm_head@LMHead
+
+# TRM config
+# Reduced L_cycles to match FLOPs
+H_cycles: 2
+L_cycles: 1
+
+H_bp_steps: 1
+L_bp_steps: 1

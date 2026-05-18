@@ -1,0 +1,21 @@
+engine: VLLMEngine
+ckpt_path: null
+max_model_len: 3072
+
+generation_config:
+  temperature: 0.0
+
+benchmarks:
+  # Few-shot freeform
+  - name: DROP
+    generation_config:
+      stop: "\n\n"
+
+  # Few-shot MCQ
+  - name: MMLU
+    special_shots:
+      high_school_european_history: 3  # MMLU: some tasks have too long context to fit inside model.
+  - name: ARC
+  - name: HellaSwag
+  - name: Winogrande
+  - name: BoolQ

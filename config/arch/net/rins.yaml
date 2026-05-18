@@ -1,0 +1,8 @@
+name: baselines.rins_nocarry@RINS
+head: lm_head@LMHead
+
+half_layers: True  # Divide layers by 2, split layers evenly to H and L.
+
+# RINS config
+L_cycles: 7
+L_bp_cycles: 4

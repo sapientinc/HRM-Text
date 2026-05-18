@@ -1,0 +1,6 @@
+name: baselines.ut_nocarry@UniversalTransformer
+head: lm_head@LMHead
+
+# UT config
+cycles: 4
+bp_cycles: 2

@@ -1,0 +1,16 @@
+# Backbone config
+n_layers: 32
+
+hidden_size: 1536
+num_heads: 12  # head size 128, min(2, hidden_size // 128)
+expansion: 4
+
+norm_type: pre  # TODO: Try different type of norms. Note that learning rate is dependent of norm type and init scale.
+norm_eps: 1e-6
+
+rope_theta: 10000.0
+pos_emb_type: rope
+
+# Simple Lecun Normal works better than Megatron init.
+# NOTE: Maybe larger init increases non-residual contribution, and layers are more effective?
+init_type: lecun_normal
