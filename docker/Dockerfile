@@ -31,14 +31,18 @@ RUN wget -q --show-progress --progress=bar:force:noscroll -O cuda_installer.run 
     && sh cuda_installer.run --silent --toolkit --override \
     && rm cuda_installer.run
 
-# Install PyTorch, torchvision, torchaudio, and other requirements
-# Limit extension building to 1/4 of CPU cores to prevent OOM errors
-COPY requirements /tmp/requirements/
+# Install PyTorch, torchvision, torchaudio, and other requirements.
+# Root requirements.txt stays the source of truth for normal Python packages.
+# Limit extension building to 1/4 of CPU cores to prevent OOM errors.
+COPY requirements.txt /tmp/requirements.txt
+COPY docker/requirements /tmp/docker-requirements/
 RUN pip3 install --no-cache-dir torch torchvision torchaudio --index-url $PYTORCH_INDEX_URL \
     && pip3 install --no-cache-dir packaging ninja wheel setuptools setuptools-scm \
-    && MAX_JOBS=$(python -c "import os; print(max(1, os.cpu_count() // 4))") NVCC_THREADS=2 pip3 install --no-cache-dir --no-build-isolation -r /tmp/requirements/torch_extensions.txt \
-    && pip3 install --no-cache-dir -r /tmp/requirements/packages.txt \
-    && rm -rf /tmp/requirements
+    && MAX_JOBS=$(python -c "import os; print(max(1, os.cpu_count() // 4))") NVCC_THREADS=2 pip3 install --no-cache-dir --no-build-isolation -r /tmp/docker-requirements/torch_extensions.txt \
+    && pip3 install --no-cache-dir -r /tmp/requirements.txt \
+    && rm -rf /tmp/docker-requirements /tmp/requirements.txt
 
-# Set the default command to bash
-ENTRYPOINT [ "/bin/bash" ]
+WORKDIR /workspace
+
+# Environment-only image: mount or clone HRM-Text at runtime.
+CMD [ "/bin/bash" ]

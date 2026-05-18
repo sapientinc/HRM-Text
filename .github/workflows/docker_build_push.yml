@@ -1,0 +1,64 @@
+name: docker_build_push
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - requirements.txt
+      - docker/**
+  workflow_dispatch:
+
+concurrency:
+  group: docker-build-push-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on:
+      group: CPU-Large-amd64
+
+    steps:
+      - name: Free up disk space
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare Docker image name
+        id: docker_meta
+        env:
+          DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+          DOCKER_NAMESPACE: ${{ secrets.DOCKER_NAMESPACE }}
+        run: |
+          repo_name="${GITHUB_REPOSITORY##*/}"
+          image_name="$(printf '%s' "$repo_name" | tr '[:upper:]' '[:lower:]')"
+          echo "image=${DOCKER_REGISTRY}/${DOCKER_NAMESPACE}/${image_name}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push pretraining environment image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ${{ steps.docker_meta.outputs.image }}:latest
+            ${{ steps.docker_meta.outputs.image }}:${{ steps.docker_meta.outputs.sha_tag }}
