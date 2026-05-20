@@ -249,6 +249,12 @@ For infrastructure changes intended to be behavior-preserving, include before/af
 
 For model-quality changes, we evaluate whether the change improves the Pareto frontier of training compute versus performance. Strict improvements and high-ROI changes are good candidates for defaults; valuable tradeoffs with higher cost or lower performance may belong in separate configs.
 
+## Paper
+
+The full paper is available here:
+
+[📄 View PDF](assets/HRM_Text.pdf)
+
 ## Citation
 
 Citation information will be added with the accompanying paper.
