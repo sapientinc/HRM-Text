@@ -20,7 +20,10 @@ checkpoint_interval: 5
 
 lr: 2.0e-5
 lr_min_ratio: 0.1
-lr_warmup_steps: 50
+lr_warmup_steps: 0
+
+arch:
+  bp_warmup_ratio: 0.0   # SFT: no BP warmup (use bp_max_steps from step 1)
 
 weight_decay: 0.1
 beta1: 0.9
