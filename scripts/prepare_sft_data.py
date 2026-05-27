@@ -83,6 +83,7 @@ def main():
     inst_len: list[int] = []
     resp_start: list[int] = []
     resp_len: list[int] = []
+    skipped_empty = 0
 
     for r in rows:
         condition = r.get("condition", "direct")
@@ -94,6 +95,12 @@ def main():
 
         inst_ids = tok.encode(r["instruction"], add_special_tokens=False).ids
         resp_ids = tok.encode(r["response"], add_special_tokens=False).ids
+
+        # Empty-response samples produce seqlens_o == 0 at runtime; a packed batch of
+        # only such samples crashes FA3 backward. Drop them at prep time.
+        if not resp_ids:
+            skipped_empty += 1
+            continue
 
         i_start = len(all_tokens)
         all_tokens.append(boq_id)
@@ -108,6 +115,9 @@ def main():
         all_tokens.append(eoa_id)
         resp_start.append(r_start)
         resp_len.append(len(all_tokens) - r_start)
+
+    if skipped_empty:
+        print(f"Skipped {skipped_empty} samples with empty response")
 
     tokens_np = np.array(all_tokens, dtype=np.int32)
     inst_start_np = np.array(inst_start, dtype=np.int64)
