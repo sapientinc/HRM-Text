@@ -208,14 +208,14 @@ def flash_attn_varlen_prefixlm_bwd_compileop(
             dk=dk2,
             dv=dv2,
             is_causal=True)
-    else:
-        dk2, dv2 = torch.zeros_like(k), torch.zeros_like(v)
+        dk2[total_seqlen_int:] = 0
+        dv2[total_seqlen_int:] = 0
+        dk1.add_(dk2)
+        dv1.add_(dv2)
 
     # Zero padding grads
     dq[total_seqlen_int:] = 0
-    dk2[total_seqlen_int:] = 0
-    dv2[total_seqlen_int:] = 0
-    return dq, dk1.add_(dk2), dv1.add_(dv2)
+    return dq, dk1, dv1
 
 
 @torch.library.register_fake("flash_attn::flash_attn_varlen_prefixlm_bwd_compileop")
