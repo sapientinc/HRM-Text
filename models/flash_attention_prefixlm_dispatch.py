@@ -109,6 +109,23 @@ def flash_attn_varlen_prefixlm(
                 max_seqlen_causal,
                 max_seqlen_all,
             )
+        case "rocm":
+            from models.flash_attention_prefixlm_rocm import flash_attn_varlen_prefixlm as rocm_prefixlm
+
+            return rocm_prefixlm(
+                q,
+                k,
+                v,
+                is_causal,
+                prefix_lens,
+                causal_lens,
+                cu_seqlens,
+                total_seqlen,
+                numseqs,
+                max_seqlen_prefix,
+                max_seqlen_causal,
+                max_seqlen_all,
+            )
         case "mps":
             if _mps_kernel_supported(q, k, v):
                 return _mps_prefixlm(

@@ -3,7 +3,7 @@ from typing import Literal
 import torch
 
 
-AcceleratorType = Literal["sm90", "sm100", "mps", "cpu", "none"]
+AcceleratorType = Literal["sm90", "sm100", "rocm", "mps", "cpu", "none"]
 
 _accelerator_type: AcceleratorType = "sm100"
 
@@ -43,6 +43,8 @@ def is_accelerator_available(accelerator_type: AcceleratorType, local_rank: int 
             return False
         major, _minor = torch.cuda.get_device_capability(local_rank)
         return major == _expected_cuda_major(accelerator_type)
+    if accelerator_type == "rocm":
+        return torch.version.hip is not None and torch.cuda.is_available() and local_rank < torch.cuda.device_count()
     if accelerator_type == "mps":
         return torch.backends.mps.is_available()
     if accelerator_type in ("cpu", "none"):
@@ -67,6 +69,16 @@ def validate_accelerator_available(accelerator_type: AcceleratorType, local_rank
             f"detected_capability={capability}."
         )
 
+    if accelerator_type == "rocm":
+        hip_version = torch.version.hip
+        cuda_state = "available" if torch.cuda.is_available() else "unavailable"
+        device_count = torch.cuda.device_count() if torch.cuda.is_available() else 0
+        raise RuntimeError(
+            f"accelerator_type=rocm requires a HIP/ROCm torch build with a device at "
+            f"local_rank={local_rank}; torch.version.hip={hip_version}, torch.cuda is {cuda_state}, "
+            f"device_count={device_count}."
+        )
+
     if accelerator_type == "mps":
         raise RuntimeError(
             "accelerator_type=mps was requested, but torch.backends.mps.is_available() is false. "
@@ -84,7 +96,7 @@ def torch_device_for_accelerator(
     if validate:
         validate_accelerator_available(accelerator_type, local_rank=local_rank)
 
-    if accelerator_type in ("sm90", "sm100"):
+    if accelerator_type in ("sm90", "sm100", "rocm"):
         return torch.device("cuda", local_rank)
     if accelerator_type == "mps":
         return torch.device("mps")

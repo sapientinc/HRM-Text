@@ -167,7 +167,7 @@ def create_dataloader(config: PretrainConfig, local_batch_size: int, drop_last_b
         "dataset": dataset,
         "batch_size": None,
         "num_workers": num_workers,
-        "pin_memory": config.accelerator_type in ("sm90", "sm100"),
+        "pin_memory": config.accelerator_type in ("sm90", "sm100", "rocm"),
     }
     if num_workers > 0:
         dataloader_kwargs |= {
@@ -186,8 +186,13 @@ def apply_fsdp(module: nn.Module, param_dtype: torch.dtype):
     
     assert isinstance(module, FSDPModule)
     # Disable gradient division. Adams is scale invariant.
-    module.set_gradient_divide_factor(1.0)
-    module.set_force_sum_reduction_for_comms(True)
+    # The FSDP2 API for this was renamed across torch versions; support both.
+    if hasattr(module, "set_gradient_divide_factor"):
+        module.set_gradient_divide_factor(1.0)
+    else:
+        module.set_reduce_scatter_divide_factor(1.0)
+    if hasattr(module, "set_force_sum_reduction_for_comms"):
+        module.set_force_sum_reduction_for_comms(True)
 
 
 def unwrap_model(model: nn.Module) -> nn.Module:
