@@ -1,5 +1,10 @@
 from typing import Any, Optional, Callable
 import re
+import ast
+import json
+import subprocess
+import tempfile
+import os
 from collections import defaultdict, Counter
 from dataclasses import dataclass
 
@@ -332,7 +337,7 @@ class BoolQ(HFMCQBenchmark):
 # --- Majority Voting ---
 
 class AIMEMajorityVoting(BaseBenchmark):
-    def __init__(self, year: str = "25", n: int = 256, pass_k: list[int] = [1, 10, 100]):
+    def __init__(self, year: str = "25", n: int = 64, pass_k: list[int] = [1, 10]):
         super().__init__()
         self.n = n
         self.pass_k = pass_k
@@ -389,3 +394,86 @@ class AIMEMajorityVoting(BaseBenchmark):
         metrics = {f"maj_pass@{k}": v / max(1, total) for k, v in maj_pass_k.items()}
         metrics |= {f"pass@{k}": v / max(1, total) for k, v in pass_k.items()}
         return result | metrics
+
+
+class HumanEval(BaseBenchmark):
+    def __init__(self, split: str = "test"):
+        super().__init__()
+
+        dataset = load_dataset("evalplus/humanevalplus", split=split)
+        for item in dataset:
+            self.prompts.append(f"Complete the following Python function.\n```python\n{item['prompt']}\n```")
+            self.ground_truths.append({
+                "task_id": item["task_id"],
+                "prompt": item["prompt"],
+                "entry_point": item["entry_point"]
+            })
+
+    def _match_answer(self, task_data: dict, response: str) -> dict:
+        def _function_exists(code: str, func_name: str) -> bool:
+            try:
+                tree = ast.parse(code)
+                return any(isinstance(n, ast.FunctionDef) and n.name == func_name for n in ast.walk(tree))
+            except SyntaxError:
+                return False
+
+        def _try_match(content: str, prefix: str, entrypoint: str) -> Optional[str]:
+            blocks = [m[1] for m in re.findall(r"(`{3}.*?\n+)([\s\S]*?)(\n+`{3})", content)] + [content]
+            for block in blocks:
+                completion = prefix + block
+                if _function_exists(completion, entrypoint):
+                    return completion
+            return None
+
+        # 1. Match with truncated prefix
+        include_prefix = task_data['prompt'].split('def')[0].strip() + "\n\n"
+        result = _try_match(response, include_prefix, task_data["entry_point"])
+        # 2. Match with full prompt prefix
+        if not result:
+            result = _try_match(response, task_data["prompt"], task_data["entry_point"])
+        # 3. Fallback
+        if not result:
+            result = response
+
+        return {"task_id": task_data["task_id"], "solution": result}
+
+    def compute_metrics(self, generations: list[str]) -> dict:
+        samples = [self._match_answer(gt, gen) for gt, gen in zip(self.ground_truths, generations)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            samples_path = os.path.join(tmpdir, "samples.jsonl")
+            with open(samples_path, "w", encoding="utf-8") as f:
+                for s in samples:
+                    f.write(json.dumps(s) + "\n")
+
+            # Run EvalPlus Docker container
+            cmd = [
+                "docker", "run", "--rm", 
+                "-v", f"{tmpdir}:/app", 
+                "ganler/evalplus:latest", 
+                "evalplus.evaluate", 
+                "--dataset", "humaneval", 
+                "--samples", "/app/samples.jsonl"
+            ]
+
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"EvalPlus execution failed:\n{e.stderr}\n{e.stdout}")
+                return {"error": "EvalPlus Docker execution failed. Make sure Docker daemon is running."}
+
+            results_path = os.path.join(tmpdir, "samples_eval_results.json")
+            with open(results_path, "r", encoding="utf-8") as f:
+                eval_results = json.load(f)
+
+            # Extract metrics from the "eval" block
+            eval_data = eval_results.get("eval", {})
+            total_tasks = len(eval_data)
+            base_passed = sum(1 for attempts in eval_data.values() if attempts[0].get("base_status") == "pass")
+            plus_passed = sum(1 for attempts in eval_data.values() if attempts[0].get("plus_status") == "pass")
+
+            return {
+                "n": total_tasks,
+                "pass@1_base": base_passed / total_tasks,
+                "pass@1_plus": plus_passed / total_tasks
+            }

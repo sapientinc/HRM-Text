@@ -11,6 +11,8 @@ benchmarks:
   # CoT
   - name: GSM8k
   - name: MATH
+  - name: MMLUPro
+  - name: HumanEval
 
   # Few-shot freeform
   - name: DROP
