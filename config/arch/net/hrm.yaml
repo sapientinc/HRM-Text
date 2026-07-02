@@ -8,5 +8,6 @@ H_cycles: 2
 L_cycles: 3
 H_override: {}
 
-bp_warmup_ratio: 0.2
-bp_max_steps: 5
+bp_warmup_ratio: 0.5
+bp_min_steps: 2
+bp_max_steps: 6

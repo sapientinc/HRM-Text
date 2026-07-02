@@ -14,9 +14,9 @@ class HierarchicalReasoningModelConfig(TransformerConfig):
     H_cycles: int
     L_cycles: int
 
-    bp_warmup_ratio: float = 0.0
-    bp_min_steps: int = 2
-    bp_max_steps: int = 5
+    bp_warmup_ratio: float
+    bp_min_steps: int
+    bp_max_steps: int
 
     # Change some Transformer config of H-level
     # TODO: Try asymmetric H and L module, such as different size, hidden dims, architecture, attention type, etc.

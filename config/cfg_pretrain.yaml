@@ -7,7 +7,7 @@ defaults:
 hydra:
   output_subdir: null
 
-global_batch_size: 196608  # Batch size (tokens)
+global_batch_size: 188416  # Batch size (tokens)
 epochs: 4
 checkpoint_interval: 1
 
