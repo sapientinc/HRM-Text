@@ -7,8 +7,17 @@ import torch.nn.functional as F
 from einops import rearrange
 
 from models.common import trunc_normal_init_, unwrap_tensor
-from models.flash_attention_prefixlm_v2 import flash_attn_varlen_prefixlm
-from flash_attn_interface import flash_attn_with_kvcache
+
+try:
+    # FlashAttention-3 (Hopper-only kernels, sm_90-sm_110). Preferred when available
+    # (e.g. cloud H100 nodes) for speed and closeness to the published numerics.
+    from models.flash_attention_prefixlm_v2 import flash_attn_varlen_prefixlm
+    from flash_attn_interface import flash_attn_with_kvcache
+except ImportError:
+    # Fallback for GPUs FA3 doesn't support (e.g. Blackwell sm_121 on DGX Spark) or
+    # CPU-only environments: same PrefixLM attention semantics via SDPA.
+    from models.sdpa_attention import flash_attn_varlen_prefixlm_sdpa as flash_attn_varlen_prefixlm
+    from models.sdpa_attention import sdpa_attn_with_kvcache as flash_attn_with_kvcache
 
 
 Carry = dict[str, Any]
