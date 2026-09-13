@@ -1,7 +1,10 @@
 coolname
 datasets
 einops
-flash_attn_3
+# flash_attn_3: Hopper-only (sm_90-sm_110) kernels, install only on Hopper GPUs.
+# On other architectures (e.g. Blackwell sm_121 / DGX Spark), leave this out --
+# models/layers.py automatically falls back to models/sdpa_attention.py.
+# flash_attn_3
 hydra-core
 lm-eval[hf,vllm]
 math-verify

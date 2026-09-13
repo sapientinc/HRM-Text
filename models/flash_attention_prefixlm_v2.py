@@ -4,7 +4,15 @@ import torch
 from torch import Tensor
 import numpy as np
 
-from flash_attn_interface import _flash_attn_backward, maybe_contiguous
+try:
+    # Only needed by the FA3-backed functions below (_custom_flash_attn_forward and
+    # friends). compute_aux_seq_tensors_scalars is pure numpy and has no FA3
+    # dependency, so keep this module importable (e.g. from dataset_new.py) even
+    # where FA3 isn't installed; models/layers.py falls back to
+    # models/sdpa_attention.py for the actual attention call in that case.
+    from flash_attn_interface import _flash_attn_backward, maybe_contiguous
+except ImportError:
+    _flash_attn_backward = maybe_contiguous = None
 
 
 def compute_aux_seq_tensors_scalars(prefix_lens: np.ndarray, causal_lens: np.ndarray, batch_max_tokens: int):
