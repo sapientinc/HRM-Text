@@ -14,6 +14,19 @@ a performance-equivalent replacement.
 `models/layers.py` imports the FA3 versions first and only falls back to
 this module on ImportError, so nothing changes for environments where FA3
 is installed (e.g. Hopper cloud nodes).
+
+The two public entry points are wrapped in `torch.compiler.disable()`.
+`pretrain.py` runs its train step under `torch.compile(dynamic=False)`;
+the FA3 path is registered as a `torch.library.custom_op` specifically so
+the compiler treats it as an opaque call instead of tracing through the
+`.item()` calls and Python-level control flow needed to build the packed
+PrefixLM mask (which depend on per-step tensor values like `numseqs` and
+`total_seqlen`, not just shapes). Without an equivalent boundary here,
+those would force a full recompilation on every step with a new packing,
+which is both slow and can hit the dynamo recompile-limit. Disabling
+compilation for just this function makes it a graph break instead: it
+runs eagerly, torch.compile handles everything else as usual, and
+autograd is unaffected either way.
 """
 
 from typing import Union
@@ -69,6 +82,7 @@ def _build_prefixlm_mask(prefix_lens: Tensor, cu_seqlens: Tensor, numseqs: int, 
     return allow
 
 
+@torch.compiler.disable()
 def flash_attn_varlen_prefixlm_sdpa(q: Tensor, k: Tensor, v: Tensor, is_causal: bool,
                                     prefix_lens: Tensor, causal_lens: Tensor, cu_seqlens: Tensor,
                                     total_seqlen: Union[int, Tensor], numseqs: Union[int, Tensor],
@@ -101,6 +115,7 @@ def flash_attn_varlen_prefixlm_sdpa(q: Tensor, k: Tensor, v: Tensor, is_causal: 
     return out
 
 
+@torch.compiler.disable()
 def sdpa_attn_with_kvcache(q: Tensor, k: Tensor, v: Tensor, k_cache: Tensor, v_cache: Tensor,
                            cache_seqlens: Union[int, Tensor], causal: bool, num_splits: int = 1) -> Tensor:
     # q/k/v: [B, S_new, H, D]. k_cache/v_cache: [B, max_seq_len, Hkv, D], updated in place.

@@ -6,6 +6,7 @@
 /data/
 # checkpoints
 /checkpoints/
+/ckpt_*/
 # old
 /old/
 /experimental/
