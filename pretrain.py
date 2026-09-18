@@ -22,7 +22,7 @@ import hydra
 import pydantic
 from omegaconf import DictConfig, OmegaConf
 
-from models.layers import Carry
+from models.layers import Carry, LinearInit
 from models.common import wrap_tensor
 from models.transformer import TransformerBlock
 from models.adam_atan2 import AdamATan2
@@ -62,6 +62,7 @@ class PretrainConfig(pydantic.BaseModel):
     beta2: float
     ema: Optional[float] = None
     fwd_bwd_dtype: str = "bfloat16"
+    use_fp8: bool = False  # Convert Linear layers (except lm_head) to torchao Float8Linear.
 
     # Names
     project_name: Optional[str] = None
@@ -146,6 +147,20 @@ def create_model_and_carry(config: PretrainConfig, train_metadata: V1DatasetMeta
     # Broadcast buffers
     for buffer in model.buffers():
         dist.broadcast(buffer, src=0)
+
+    # ----FP8 (optional)----
+    # Must happen before FSDP wrapping (torchao's Float8Linear composes with FSDP2,
+    # not the other way around). lm_head is excluded: it's the loss-sensitive final
+    # projection, and keeping it in the master (bf16) dtype is standard practice
+    # (matches torchtitan/nanotron recipes) to avoid extra logit-precision noise.
+    if config.use_fp8:
+        from torchao.float8 import convert_to_float8_training, Float8LinearConfig
+        fp8_config = Float8LinearConfig.from_recipe_name("tensorwise")
+        convert_to_float8_training(
+            model,
+            config=fp8_config,
+            module_filter_fn=lambda mod, fqn: isinstance(mod, LinearInit) and fqn != "lm_head",
+        )
 
     # Detect TransformerBlock recursively and apply FSDP
     for module in model.modules():

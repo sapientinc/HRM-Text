@@ -67,7 +67,11 @@ class RotaryEmbedding(torch.nn.Module):
         return self.cos_cached, self.sin_cached
 
 
-class LinearInit(nn.Module):
+class LinearInit(nn.Linear):
+    # Subclasses nn.Linear (rather than composing over it) so that libraries which
+    # target nn.Linear via isinstance() -- e.g. torchao's convert_to_float8_training --
+    # recognize and can convert these layers. forward() is inherited unchanged from
+    # nn.Linear (F.linear(input, self.weight, self.bias)).
     def __init__(self,
                  in_features: int,
                  out_features: int,
@@ -75,23 +79,16 @@ class LinearInit(nn.Module):
                  batch_out_features: Sequence[int] = (),
                  init_std: Optional[float] = None,
                  **kwargs):
-        super().__init__()
-        self.in_features = in_features
-        # Truncated LeCun normal init
+        total_out_features = math.prod(batch_out_features) * out_features
+        super().__init__(in_features, total_out_features, bias=bias, **kwargs)
+
+        # Truncated LeCun normal init, overriding nn.Linear's default kaiming-uniform init
         if init_std is None:
             init_std = 1.0 / (in_features ** 0.5)
-
-        # Parameters
-        self.weight = nn.Parameter(
-            trunc_normal_init_(torch.empty((math.prod(batch_out_features) * out_features, in_features), **kwargs), std=init_std)  # pyright: ignore[reportArgumentType]
-        )
-        self.bias = None
-        if bias:
-            # Zero init bias
-            self.bias = nn.Parameter(torch.zeros((math.prod(batch_out_features) * out_features, ), **kwargs))
-
-    def forward(self, input: Tensor) -> Tensor:
-        return F.linear(input, self.weight, self.bias)
+        with torch.no_grad():
+            trunc_normal_init_(self.weight, std=init_std)
+            if self.bias is not None:
+                self.bias.zero_()
 
 
 class ScaledEmbeddingInit(nn.Module):
