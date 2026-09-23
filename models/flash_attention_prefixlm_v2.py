@@ -1,10 +1,19 @@
 from typing import Tuple, Optional
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 import numpy as np
 
-from flash_attn_interface import _flash_attn_backward, maybe_contiguous
+try:
+    from flash_attn_interface import _flash_attn_backward, maybe_contiguous
+    FLASH_ATTN_AVAILABLE = True
+except (ImportError, OSError):
+    _flash_attn_backward = None
+    FLASH_ATTN_AVAILABLE = False
+
+    def maybe_contiguous(x):
+        return x.contiguous() if x is not None and not x.is_contiguous() else x
 
 
 def compute_aux_seq_tensors_scalars(prefix_lens: np.ndarray, causal_lens: np.ndarray, batch_max_tokens: int):
@@ -83,6 +92,103 @@ def _custom_flash_attn_forward(
         sm_margin=0,
     )
     return out, softmax_lse
+
+
+def _torch_sdpa(q: Tensor, k: Tensor, v: Tensor, attn_mask: Tensor) -> Tensor:
+    # q/k/v: [seq, heads, head_dim]; SDPA expects [batch, heads, seq, head_dim].
+    return F.scaled_dot_product_attention(
+        q.transpose(0, 1).unsqueeze(0),
+        k.transpose(0, 1).unsqueeze(0),
+        v.transpose(0, 1).unsqueeze(0),
+        attn_mask=attn_mask.unsqueeze(0).unsqueeze(0),
+        dropout_p=0.0,
+        is_causal=False,
+    ).squeeze(0).transpose(0, 1)
+
+
+def _prefixlm_mask(seq_len: int, prefix_len: int, is_causal: bool, device: torch.device) -> Tensor:
+    query_pos = torch.arange(seq_len, device=device).unsqueeze(1)
+    key_pos = torch.arange(seq_len, device=device).unsqueeze(0)
+    if is_causal:
+        return key_pos <= query_pos
+    return torch.where(query_pos < prefix_len, key_pos < prefix_len, key_pos <= query_pos)
+
+
+def _torch_flash_attn_varlen_prefixlm(q: Tensor,
+                                      k: Tensor,
+                                      v: Tensor,
+                                      is_causal: bool,
+                                      prefix_lens: Tensor,
+                                      causal_lens: Tensor,
+                                      cu_seqlens: Tensor,
+                                      total_seqlen: Tensor,
+                                      numseqs: Tensor,
+                                      max_seqlen_prefix: Tensor,
+                                      max_seqlen_causal: Tensor,
+                                      max_seqlen_all: Tensor) -> Tensor:
+    del max_seqlen_prefix, max_seqlen_causal, max_seqlen_all
+    out = torch.zeros_like(q)
+    numseqs_int = int(numseqs.item())
+    total_seqlen_int = int(total_seqlen.item())
+
+    cu = cu_seqlens[:numseqs_int + 1].to(device="cpu", dtype=torch.int64)
+    prefixes = prefix_lens[:numseqs_int].to(device="cpu", dtype=torch.int64)
+    causals = causal_lens[:numseqs_int].to(device="cpu", dtype=torch.int64)
+
+    for i in range(numseqs_int):
+        start = int(cu[i].item())
+        seq_len = int((prefixes[i] + causals[i]).item())
+        prefix_len = int(prefixes[i].item())
+        if seq_len == 0:
+            continue
+
+        end = start + seq_len
+        mask = _prefixlm_mask(seq_len, prefix_len, is_causal, q.device)
+        out[start:end] = _torch_sdpa(q[start:end], k[start:end], v[start:end], mask)
+
+    if total_seqlen_int < out.shape[0]:
+        out[total_seqlen_int:] = 0
+    return out
+
+
+def flash_attn_with_kvcache(q: Tensor,
+                            k: Tensor,
+                            v: Tensor,
+                            k_cache: Tensor,
+                            v_cache: Tensor,
+                            cache_seqlens: Tensor | int,
+                            causal: bool,
+                            **kwargs) -> Tensor:
+    if FLASH_ATTN_AVAILABLE:
+        from flash_attn_interface import flash_attn_with_kvcache as _flash_attn_with_kvcache
+        return _flash_attn_with_kvcache(q=q, k=k, v=v, k_cache=k_cache, v_cache=v_cache,
+                                        cache_seqlens=cache_seqlens, causal=causal, **kwargs)
+
+    del kwargs
+    out = torch.empty_like(q)
+    batch_size, query_len = q.shape[:2]
+    if isinstance(cache_seqlens, int):
+        lengths = torch.full((batch_size,), cache_seqlens, device="cpu", dtype=torch.int64)
+    else:
+        lengths = cache_seqlens.detach().to(device="cpu", dtype=torch.int64)
+
+    for b in range(batch_size):
+        start = int(lengths[b].item())
+        end = start + query_len
+        k_cache[b, start:end] = k[b]
+        v_cache[b, start:end] = v[b]
+
+        keys = k_cache[b, :end]
+        values = v_cache[b, :end]
+        if causal:
+            query_pos = torch.arange(start, end, device=q.device).unsqueeze(1)
+            key_pos = torch.arange(end, device=q.device).unsqueeze(0)
+            mask = key_pos <= query_pos
+        else:
+            mask = torch.ones((query_len, end), device=q.device, dtype=torch.bool)
+        out[b] = _torch_sdpa(q[b], keys, values, mask)
+
+    return out
 
 
 @torch.library.custom_op("flash_attn::flash_attn_varlen_prefixlm_compileop", mutates_args=())
@@ -276,6 +382,10 @@ def flash_attn_varlen_prefixlm(q: Tensor,
                                prefix_lens: Tensor, causal_lens: Tensor, cu_seqlens: Tensor,
                                # CPU tensors (scalars)
                                total_seqlen: Tensor, numseqs: Tensor, max_seqlen_prefix: Tensor, max_seqlen_causal: Tensor, max_seqlen_all: Tensor):
+    if not FLASH_ATTN_AVAILABLE:
+        return _torch_flash_attn_varlen_prefixlm(q, k, v, is_causal,
+                                                prefix_lens, causal_lens, cu_seqlens,
+                                                total_seqlen, numseqs, max_seqlen_prefix, max_seqlen_causal, max_seqlen_all)
     # Apply function
     return FlashAttnVarlenPrefixLM.apply(q, k, v, is_causal,
                                          prefix_lens, causal_lens, cu_seqlens,
